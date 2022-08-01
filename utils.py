@@ -97,7 +97,7 @@ class synth_expert:
         self.k = k
         self.n_classes = n_classes
 
-    def predict(self, input, labels):
+    def predict(self, input, labels, missing):
         batch_size = labels.size()[0]  # batch_size
         outs = [0] * batch_size
         for i in range(0, batch_size):

@@ -293,7 +293,7 @@ def metrics_print_classifier(model, data_loader, defer_net = False):
                     correct_pred[cifar_classes[label]] += 1
                 total_pred[cifar_classes[label]] += 1
 
-    print('Accuracy of the network on the %d test images: %.3f %%' % (len(data_loader),
+    print('Accuracy of the network on the %d test images: %.3f %%' % (total,
         100 * correct / total))
     # print accuracy for each class
     for classname, correct_count in correct_pred.items():

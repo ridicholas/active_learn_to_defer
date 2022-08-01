@@ -195,7 +195,7 @@ def validate_reject(val_loader, model, epoch, expert_fn, n_classes):
 
 
 
-def run_reject(model, n_dataset, expert_fn, epochs, alpha, train_loader, val_loader, best_on_val = False, epoch_freq = 10):
+def run_reject(model, n_dataset, expert_fn, epochs, alpha, train_loader, val_loader, best_on_val = False, epoch_freq = 10, expert_missing=None):
     '''
     Overall helper for training to defer (this is the function to call)
     model: WideResNet model or pytorch model
