@@ -97,6 +97,10 @@ class CifarExpertDataset(Dataset):
         """
         self.images = images
         self.targets = np.array(targets)
+        if not(target_labeled):
+            self.targets[:] = -1
+            
+
         self.expert_fn = expert_fn
         self.expert_labeled = np.array(expert_labeled)
         self.expert_preds = np.array(expert_fn(None, torch.FloatTensor(targets)))
@@ -150,17 +154,27 @@ for trial in range(MAX_TRIALS):
         all_data_x = np.array(train_dataset.dataset.data)[train_dataset.indices]
         all_data_y = np.array(train_dataset.dataset.targets)[train_dataset.indices]
 
-        intial_random_set = random.sample(all_indices, math.floor(data_size*len(all_indices)))
-        indices_labeled  = intial_random_set
-        indices_unlabeled= list(set(all_indices) - set(indices_labeled))
+        #create 4 sets of data, labeled by both, labeled by expert only, labeled by human only, no labeled
+        initial_random_set = random.sample(all_indices, math.floor(3*data_size*len(all_indices)))
+        initial_random_expert_only = random.sample(initial_random_set, math.floor(0.66*len(initial_random_set)))
+        initial_random_set = list(set(initial_random_set) - set(initial_random_expert_only))
+        initial_random_truth_only = random.sample(initial_random_set, math.floor(0.5*len(initial_random_expert_only)))
+        initial_random_expert_only = list(set(initial_random_expert_only) - set(initial_random_truth_only))
+        indices_labeled  = initial_random_set
+        indices_expert_only = initial_random_expert_only
+        indices_truth_only = initial_random_truth_only
+        indices_unlabeled= list(set(all_indices) - set(indices_labeled) - set(indices_expert_only) - set(indices_truth_only))
 
-        dataset_train_labeled = CifarExpertDataset(all_data_x[indices_labeled], all_data_y[indices_labeled], Expert.predict , [1]*len(indices_labeled), indices_labeled)
-        dataset_train_unlabeled = CifarExpertDataset(all_data_x[indices_unlabeled], all_data_y[indices_unlabeled], Expert.predict , [0]*len(indices_unlabeled), indices_unlabeled)
-
+        dataset_train_labeled = CifarExpertDataset(all_data_x[indices_labeled], all_data_y[indices_labeled], Expert.predict , [1]*len(indices_labeled), True, indices_labeled)
+        dataset_train_unlabeled = CifarExpertDataset(all_data_x[indices_unlabeled], all_data_y[indices_unlabeled], Expert.predict , [0]*len(indices_unlabeled), False, indices_unlabeled)
+        dataset_train_expert_only = CifarExpertDataset(all_data_x[indices_expert_only], all_data_y[indices_expert_only], Expert.predict , [1]*len(indices_expert_only), False, indices_expert_only)
+        dataset_train_truth_only = CifarExpertDataset(all_data_x[indices_truth_only], all_data_y[indices_truth_only], Expert.predict , [0]*len(indices_truth_only), True, indices_truth_only)
+        
+        
         dataLoaderTrainLabeled = DataLoader(dataset=dataset_train_labeled, batch_size=128, shuffle=True,  num_workers=0, pin_memory=True)
         dataLoaderTrainUnlabeled = DataLoader(dataset=dataset_train_unlabeled, batch_size=128, shuffle=True,  num_workers=0, pin_memory=True)
-
-
+        dataLoaderTrainExpertOnly = DataLoader(dataset=dataset_train_expert_only, batch_size=128, shuffle=True,  num_workers=0, pin_memory=True)
+        dataLoaderTrainTruthOnly = DataLoader(dataset=dataset_train_truth_only, batch_size=128, shuffle=True,  num_workers=0, pin_memory=True)
        
         
         print(f' \n Seperate \n')
@@ -183,15 +197,17 @@ for trial in range(MAX_TRIALS):
                 images, label, expert_pred, data_indices ,_ = data
                 expert_pred = expert_pred.long()
                 expert_pred = (expert_pred == label) *1
-                images, labels = images.to(device), expert_pred.to(device)
+                images, labels, data_indices = images.to(device), expert_pred.to(device), data_indices.to(device)
                 outputs = model_expert(images)
                 _, predictions = torch.max(outputs.data, 1) # maybe no .data
-                dataset_train_unlabeled.expert_preds[data_indices] = predictions
+                dataset_train_unlabeled.expert_preds[data_indices.cpu()] = predictions.cpu()
         
         #fine tune existing expert_model on newly labeled data
+        dataLoaderTrainUnlabeled = DataLoader(dataset=dataset_train_unlabeled, batch_size=128, shuffle=True,  num_workers=0, pin_memory=True)
         expert_semi_dict = run_expert(model_expert,EPOCHS, dataLoaderTrainUnlabeled, dataLoaderVal)
-        
         expert_semi.append(metrics_print_2step(model_class, model_expert, Expert.predict, 10, dataLoaderTest)['system accuracy'])
+
+
                 
         
 
