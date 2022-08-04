@@ -189,8 +189,9 @@ for trial in range(MAX_TRIALS):
                 dataset_train_unlabeled.expert_preds[data_indices] = predictions
         
         #fine tune existing expert_model on newly labeled data
-        model_expert_semi = run_expert(model_expert,EPOCHS, dataLoaderTrainUnlabeled, dataLoaderVal)
-        expert_semi.append(metrics_print_2step(model_class, model_expert_semi, Expert.predict, 10, dataLoaderTest)['system accuracy'])
+        expert_semi_dict = run_expert(model_expert,EPOCHS, dataLoaderTrainUnlabeled, dataLoaderVal)
+        
+        expert_semi.append(metrics_print_2step(model_class, model_expert, Expert.predict, 10, dataLoaderTest)['system accuracy'])
                 
         
 
