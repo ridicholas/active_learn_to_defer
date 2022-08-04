@@ -128,19 +128,21 @@ dataLoaderVal = DataLoader(dataset=dataset_val, batch_size=128, shuffle=False,  
 dataLoaderTest = DataLoader(dataset=dataset_test, batch_size=128, shuffle=False,  num_workers=0, pin_memory=True)
 
 MAX_TRIALS = 1
-EPOCHS = 10
+EPOCHS = 1
 EPOCHS_ALPHA = 10
 #data_sizes = [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99]
-data_sizes = [0.1, 0.2, 0.5]
+data_sizes = [0.01]
 #alpha_grid = [0, 0.1,  0.5, 1]
-alpha_grid = [0, 0.1, 0.5]
+alpha_grid = [0]
 seperate_results = []
 joint_semisupervised_results = []
+expert_semi_results = []
 
 for trial in range(MAX_TRIALS):
     joint = []
     seperate = []
     joint_semisupervised = []
+    expert_semi = []
     for data_size in data_sizes:
         print(f'\n \n datas size {data_size} \n \n')
 
@@ -188,13 +190,14 @@ for trial in range(MAX_TRIALS):
         
         #fine tune existing expert_model on newly labeled data
         model_expert_semi = run_expert(model_expert,EPOCHS, dataLoaderTrainUnlabeled, dataLoaderVal)
+        expert_semi.append(metrics_print_2step(model_class, model_expert_semi, Expert.predict, 10, dataLoaderTest)['system accuracy'])
                 
         
 
 
 
     
-    joint_results.append(joint)
+    expert_semi_results.append(expert_semi)
     seperate_results.append(seperate)
     
 
