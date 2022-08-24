@@ -23,9 +23,10 @@ import matplotlib.pyplot as plt
 from neural_network import *
 from utils import *
 from metrics import *
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 import copy
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def train_reject(train_loader, model, optimizer, scheduler, epoch, expert_fn, n_classes, alpha):
     """
@@ -56,8 +57,8 @@ def train_reject(train_loader, model, optimizer, scheduler, epoch, expert_fn, n_
             else:
                 m[j] = 0
                 m2[j] = 1
-        m = torch.tensor(m)
-        m2 = torch.tensor(m2)
+        m = torch.tensor(m, dtype=torch.int32)
+        m2 = torch.tensor(m2, dtype=torch.float32)
         m = m.to(device)
         m2 = m2.to(device)
         # done getting expert predictions and costs 
@@ -268,6 +269,8 @@ def run_reject_class(model, epochs, train_loader, val_loader, apply_softmax = Fa
         train_reject_class(train_loader, model, optimizer, scheduler, epoch, apply_softmax)
         #if epoch % 10 == 0:
             #metrics_print_classifier(model, val_loader)
+    
+    return copy.deepcopy(model.state_dict())
 
 
             
@@ -345,6 +348,8 @@ def run_expert(model, epochs, train_loader, val_loader, apply_softmax = False):
         if epoch % 10 == 0:
             metrics_print_expert(model, val_loader)
     metrics_print_expert(model, val_loader)
+
+    return copy.deepcopy(model.state_dict())
     
     
     

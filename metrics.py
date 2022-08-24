@@ -186,7 +186,10 @@ def metrics_print(net, expert_fn, n_classes, loader):
                 "alone classifier": 100 * alone_correct / real_total}
     print(to_print)
     for classname, correct_count in correct_pred.items():
-        accuracy = 100 * float(correct_count) / total_pred[classname]
+        if total_pred[classname] != 0:
+            accuracy = 100 * float(correct_count) / total_pred[classname]
+        else:
+            accuracy = 0
         print("Accuracy for class {:5s} is: {:.3f} %".format(classname,
                                                     accuracy))
     return to_print
@@ -297,9 +300,13 @@ def metrics_print_classifier(model, data_loader, defer_net = False):
         100 * correct / total))
     # print accuracy for each class
     for classname, correct_count in correct_pred.items():
-        accuracy = 100 * float(correct_count) / total_pred[classname]
+        if total_pred[classname] == 0:
+            accuracy = 0
+        else:
+            accuracy = 100 * float(correct_count) / total_pred[classname]
         print("Accuracy for class {:5s} is: {:.3f} %".format(classname,
                                                     accuracy))
+    return accuracy
                                                     
                                                     
 def metrics_print_expert(model, data_loader, defer_net = False):
@@ -325,3 +332,5 @@ def metrics_print_expert(model, data_loader, defer_net = False):
 
     print('Accuracy of the network on the %d test images: %.3f %%' % (total,
         100 * correct / total))
+    
+    return 100 * correct / total
