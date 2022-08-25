@@ -27,20 +27,30 @@ from training_helpers import *
 from scipy.stats import entropy
 import pickle
 import pandas as pd
+import time
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(device)
 
-
 #experiment parameters
-MAX_TRIALS = 10
+MAX_TRIALS = 1
 EPOCHS = 60
 EPOCHS_ALPHA = 15
-#data_sizes = [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99]
-data_sizes = [0.01]
-#alpha_grid = [0, 0.1,  0.5, 1]
-alpha_grid = [0]
+data_sizes = [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99]
+#data_sizes = [0.01]
+alpha_grid = [0, 0.1,  0.5, 1]
+#alpha_grid = [0]
 
+
+#Code snippet to view existing results.pkl file, uncomment if have results
+'''
+with open('results.pkl', 'rb') as f:
+    data = pickle.load(f)
+
+for i in range(data.shape[0]):
+    for j in range(data.shape[1]):
+        data.iloc[i, j] = data.iloc[i, j][0]['system accuracy']
+'''
 
 k = 5 # number of classes expert can predict
 n_dataset = 10
@@ -198,18 +208,19 @@ for trial in range(MAX_TRIALS):
         all_data_y = np.array(train_dataset.dataset.targets)[train_dataset.indices]
 
         #create 4 sets of data, labeled by both, labeled by expert only, labeled by human only, no labeled
-        initial_random_set = random.sample(all_indices, math.floor(3*data_size*len(all_indices)))
-        initial_random_expert_only = random.sample(initial_random_set, math.floor(0.66*len(initial_random_set)))
+        initial_random_set = random.sample(all_indices, math.floor(data_size*len(all_indices)))
+        initial_random_expert_only = random.sample(initial_random_set, math.floor(0.75*len(initial_random_set)))
         initial_random_set = list(set(initial_random_set) - set(initial_random_expert_only))
-        initial_random_truth_only = random.sample(initial_random_set, math.floor(0.5*len(initial_random_expert_only)))
-        initial_random_expert_only = list(set(initial_random_expert_only) - set(initial_random_truth_only))
+        initial_random_truth_only = random.sample(initial_random_expert_only, math.floor(0.66*len(initial_random_expert_only)))
+        initial_random_unlabeled = random.sample(initial_random_truth_only, math.floor(0.5*len(initial_random_truth_only)))
+        initial_random_expert_only = list(set(initial_random_expert_only) - set(initial_random_truth_only) - set(initial_random_unlabeled))
         indices_labeled  = initial_random_set
         indices_expert_only = initial_random_expert_only
-        indices_truth_only = initial_random_truth_only
+        indices_truth_only = list(set(initial_random_truth_only)-set(initial_random_unlabeled))
+        indices_unlabeled = initial_random_unlabeled
         indices_truth_labeled = list(set(indices_truth_only) | set(indices_labeled))
         indices_truth_unlabeled = list(set(all_indices) - set(indices_truth_labeled))
         indices_expert_unlabeled = list(set(all_indices) - set(indices_expert_only) - set(indices_labeled))
-        indices_unlabeled = list(set(all_indices) - set(indices_labeled) - set(indices_expert_only) - set(indices_truth_only))
 
         dataset_train_labeled = CifarExpertDataset(all_data_x[indices_labeled], all_data_y[indices_labeled], Expert.predict , [1]*len(indices_labeled), True, indices_labeled)
         dataset_train_unlabeled = CifarExpertDataset(all_data_x[indices_unlabeled], all_data_y[indices_unlabeled], Expert.predict , [0]*len(indices_unlabeled), False, indices_unlabeled)
@@ -219,7 +230,7 @@ for trial in range(MAX_TRIALS):
         dataset_train_truth_unlabeled = CifarExpertDataset(all_data_x[indices_truth_unlabeled], all_data_y[indices_truth_unlabeled], Expert.predict , [0]*len(indices_truth_unlabeled), False, indices_truth_unlabeled)
 
         dataLoaderTrainLabeled = DataLoader(dataset=dataset_train_labeled, batch_size=128, shuffle=True,  num_workers=0, pin_memory=True)
-        dataLoaderTrainUnlabeled = DataLoader(dataset=dataset_train_unlabeled, batch_size=128, shuffle=True,  num_workers=0, pin_memory=True)
+        dataLoaderTrainUnlabeled = DataLoader(dataset=dataset_train_unlabeled, batch_size=128, shuffle=False,  num_workers=0, pin_memory=True)
         dataLoaderTrainExpertOnly = DataLoader(dataset=dataset_train_expert_only, batch_size=128, shuffle=False,  num_workers=0, pin_memory=True)
         dataLoaderTrainTruthOnly = DataLoader(dataset=dataset_train_truth_only, batch_size=128, shuffle=False,  num_workers=0, pin_memory=True)
         dataLoaderTrainTruthLabeled = DataLoader(dataset=dataset_train_truth_labeled, batch_size=128, shuffle=True,  num_workers=0, pin_memory=True)
@@ -448,12 +459,6 @@ for trial in range(MAX_TRIALS):
 
 
         all_data_semi.append(metrics_print_2step(model_class, model_expert, Expert.predict, 10, dataLoaderTest))
-
-
-                
-        
-
-
 
     
     
