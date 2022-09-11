@@ -28,34 +28,23 @@ from scipy.stats import entropy
 import pickle
 import pandas as pd
 import time
+import sklearn.metrics
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+torch.set_num_threads(2)
 print(device)
 
 #experiment parameters
 MAX_TRIALS = 1
-EPOCHS = 10
-EPOCHS_ALPHA = 1
+EPOCHS = 1
+EPOCHS_ALPHA = 100
+EPOCHS_PSUEDO = 1
 data_sizes = [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99]
-#data_sizes = [0.01]
+data_sizes = [0.1]
 alpha_grid = [0, 0.1,  0.5, 1]
-#alpha_grid = [0]
-
-
-#Code snippet to view existing results.pkl file, uncomment if have results
-
-with open('results.pkl', 'rb') as f:
-    data = pickle.load(f)
-
-data = data.iloc[0, :]
-
-data2 = pd.DataFrame(columns = data.index)
-for col in data.index:
-    for j in range(len(data[col])):
-        if col=='joint_semi':
-            data2.loc[j, col] = data[col][j]
-        else:
-            data2.loc[j, col] = data[col][j]['system accuracy']
+alpha_grid = [0]
+PSUEDO_REPS = 3
+psuedo_percent = 0.1
 
 
 k = 5 # number of classes expert can predict
@@ -93,7 +82,7 @@ if n_dataset == 10:
 elif n_dataset == 100:
     dataset = 'cifar100'
 
-kwargs = {'num_workers': 0, 'pin_memory': True}
+kwargs = {'num_workers': 2, 'pin_memory': True}
 
 
 train_dataset_all = datasets.__dict__[dataset.upper()]('../data', train=True, download=True,
@@ -110,7 +99,7 @@ train_dataset, val_dataset = torch.utils.data.random_split(train_dataset_all, [t
 
 normalize = transforms.Normalize(mean=[x / 255.0 for x in [125.3, 123.0, 113.9]],
                                  std=[x / 255.0 for x in [63.0, 62.1, 66.7]])
-kwargs = {'num_workers': 1, 'pin_memory': True}
+kwargs = {'num_workers': 2, 'pin_memory': True}
 
 transform_test = transforms.Compose([
     transforms.ToTensor(),
@@ -179,6 +168,29 @@ def get_least_confident_points(model, data_loader, budget):
     uncertainty_estimates = np.array(uncertainty_estimates)
     return actual_indices
 
+def get_most_confident_points(model, data_loader, budget):
+    '''
+    based on entropy score get points, can chagnge, but make sure to get max or min accordingly
+    '''
+    uncertainty_estimates = []
+    indices_all = []
+    for data in data_loader:
+        images, labels, expert_preds, indices, _ = data
+        images, labels, expert_preds = images.to(device), labels.to(device), expert_preds.to(device)
+        outputs = model(images)
+        batch_size = outputs.size()[0]  
+        for i in range(0, batch_size):
+            output_i =  outputs.data[i].cpu().numpy()
+            entropy_i = entropy(output_i)
+            #entropy_i = 1 - max(output_i)
+            uncertainty_estimates.append(entropy_i)
+            indices_all.append(indices[i].item())
+    indices_all = np.array(indices_all)
+    top_budget_indices = np.argsort(uncertainty_estimates)[:budget]
+    actual_indices = indices_all[top_budget_indices]
+    uncertainty_estimates = np.array(uncertainty_estimates)
+    return actual_indices, top_budget_indices
+
 
 
 dataset_train = CifarExpertDataset(np.array(train_dataset.dataset.data)[train_dataset.indices], np.array(train_dataset.dataset.targets)[train_dataset.indices], Expert.predict , [1]*len(train_dataset.indices), target_labeled=True)
@@ -190,15 +202,16 @@ dataLoaderVal = DataLoader(dataset=dataset_val, batch_size=128, shuffle=False,  
 dataLoaderTest = DataLoader(dataset=dataset_test, batch_size=128, shuffle=False,  num_workers=0, pin_memory=True)
 
 
-seperate_results = []
-joint_results = []
-joint_semisupervised_results = []
-truth_semi_results = []
-truth_expert_semi_results = []
-all_data_semi_results = []
+
 
 
 for trial in range(MAX_TRIALS):
+    seperate_results = []
+    joint_results = []
+    joint_semisupervised_results = []
+    truth_semi_results = []
+    truth_expert_semi_results = []
+    all_data_semi_results = []
     joint = []
     seperate = []
     joint_semisupervised = []
@@ -254,7 +267,7 @@ for trial in range(MAX_TRIALS):
         dataLoaderTrainTruthOnly = DataLoader(dataset=dataset_train_truth_only, batch_size=128, shuffle=True,  num_workers=0, pin_memory=True)
 
         '''
-       
+        '''
         net_h_params = [10] + [100,100,1000,500]
         net_r_params = [1] + [100,100,1000,500]
         model_2_r = NetSimpleRejector(net_h_params, net_r_params).to(device)
@@ -278,13 +291,13 @@ for trial in range(MAX_TRIALS):
         model_2_r.load_state_dict(best_model)
         joint.append(metrics_print(model_2_r, Expert.predict, n_dataset, dataLoaderTest))
         
-        
+        '''
 
         print(f'\n Joint semi-supervised')
         net_h_params = [10] + [100,100,1000,500]
         net_r_params = [1] + [100,100,1000,500]
         model_2_r = NetSimpleRejector(net_h_params, net_r_params).to(device)
-        run_reject_class(model_2_r, EPOCHS, dataLoaderTrain, dataLoaderTrainLabeled)
+        run_reject_class(model_2_r, EPOCHS, dataLoaderTrainTruthLabeled, dataLoaderTrainTruthLabeled)
         model_dict = copy.deepcopy(model_2_r.state_dict())
         best_score = 0
         best_model = None
@@ -319,7 +332,7 @@ for trial in range(MAX_TRIALS):
         model_class = NetSimple(n_dataset, 100,100,1000,500).to(device)
         #classification model only needs truth labels
 
-        run_reject_class(model_class, EPOCHS, dataLoaderTrain, dataLoaderVal)
+        run_reject_class(model_class, EPOCHS, dataLoaderTrainTruthLabeled, dataLoaderVal)
         seperate.append(metrics_print_2step(model_class, model_expert, Expert.predict, 10, dataLoaderTest))
 
         
@@ -331,95 +344,127 @@ for trial in range(MAX_TRIALS):
         run_reject_class(model_class, EPOCHS, dataLoaderTrainTruthLabeled, dataLoaderVal)
 
         #make truth predictions on truth unlabeled data - update later to account for confidence of prediction?
-        with torch.no_grad():
-            targets = []
-            for data in dataLoaderTrainTruthUnlabeled:
-                images, label, expert_pred, data_indices , _ = data
-                expert_pred = expert_pred.long()
-                expert_pred = (expert_pred == label) * 1
-                images, labels, data_indices = images.to(device), expert_pred.to(device), data_indices.to(device)
-                outputs = model_class(images)
-                _, predictions = torch.max(outputs.data, 1) # maybe no .data
-                targets += predictions.tolist()
-        
-        #fine tune existing classifier_model on newly labeled data
-        dataset_train_truth_unlabeled.targets = targets
-        dataLoaderTrainTruthUnlabeled = DataLoader(dataset=dataset_train_truth_unlabeled, batch_size=128, shuffle=True,  num_workers=0, pin_memory=True)
-        run_reject_class(model_class, EPOCHS_ALPHA, dataLoaderTrainTruthUnlabeled, dataLoaderVal)
+        for rep in range(PSUEDO_REPS):
+            actual_points, within_points = get_most_confident_points(model_class, dataLoaderTrainTruthUnlabeled, int(psuedo_percent * len(dataset_train_truth_unlabeled.targets)))
+            with torch.no_grad():
+                targets = []
+                for data in dataLoaderTrainTruthUnlabeled:
+                    images, label, expert_pred, data_indices , _ = data
+                    expert_pred = expert_pred.long()
+                    expert_pred = (expert_pred == label) * 1
+                    images, labels, data_indices = images.to(device), expert_pred.to(device), data_indices.to(device)
+                    outputs = model_class(images)
+                    _, predictions = torch.max(outputs.data, 1) # maybe no .data
+                    targets += predictions.tolist()
+            
+            #fine tune existing classifier_model on newly labeled data
+            #dataset_train_truth_unlabeled.targets = targets
+            #get most confident points and only use those to create new dataloader
+            
+            #print(sklearn.metrics.accuracy_score(all_data_y[actual_points], np.array(targets)[within_points]))
+            dataset_train_truth_unlabeled_confident = CifarExpertDataset(all_data_x[actual_points], np.array(targets)[within_points], Expert.predict , [0]*len(actual_points), True, list(actual_points))
+            dataLoaderTrainTruthUnlabeledConfident = DataLoader(dataset=dataset_train_truth_unlabeled_confident, batch_size=128, shuffle=True,  num_workers=0, pin_memory=True)
+            run_reject_class(model_class, EPOCHS_PSUEDO, dataLoaderTrainTruthUnlabeledConfident, dataLoaderVal)
     
         
 
         # make truth predictions on expert_only unlabeled data
-        with torch.no_grad():
-            targets = []
-            for data in dataLoaderTrainExpertOnly:
-                images, label, expert_pred, data_indices ,_ = data
-                expert_pred = expert_pred.long()
-                expert_pred = (expert_pred == label) * 1
-                images, labels, data_indices = images.to(device), expert_pred.to(device), data_indices.to(device)
-                outputs = model_class(images)
-                _, predictions = torch.max(outputs.data, 1) # maybe no .data
-                targets += predictions.tolist()
-                
+        for rep in range(PSUEDO_REPS):
+            actual_points, within_points = get_most_confident_points(model_class, dataLoaderTrainExpertOnly, int(psuedo_percent * len(dataset_train_expert_only.targets)))
+            with torch.no_grad():
+                targets = []
+                for data in dataLoaderTrainExpertOnly:
+                    images, label, expert_pred, data_indices ,_ = data
+                    expert_pred = expert_pred.long()
+                    expert_pred = (expert_pred == label) * 1
+                    images, labels, data_indices = images.to(device), expert_pred.to(device), data_indices.to(device)
+                    outputs = model_class(images)
+                    _, predictions = torch.max(outputs.data, 1) # maybe no .data
+                    targets += predictions.tolist()
+                    
 
-        
-        #fine tune expert model on expert only psuedo truth data
-        dataset_train_expert_only.targets = targets
-        dataLoaderTrainExpertOnly = DataLoader(dataset=dataset_train_expert_only, batch_size=128, shuffle=True,  num_workers=0, pin_memory=True)
-        run_expert(model_expert, EPOCHS_ALPHA, dataLoaderTrainExpertOnly, dataLoaderVal)
+            
+            
+            
+            #get most confident points and only use those to create new dataloader
+
+            print(sklearn.metrics.accuracy_score(all_data_y[actual_points], np.array(targets)[within_points]))
+            dataset_train_expert_only_confident = CifarExpertDataset(all_data_x[actual_points], np.array(targets)[within_points], Expert.predict , [1]*len(actual_points), True, list(actual_points))
+            dataLoaderTrainExpertOnlyConfident = DataLoader(dataset=dataset_train_expert_only_confident, batch_size=128, shuffle=True,  num_workers=0, pin_memory=True)
+            run_expert(model_expert, EPOCHS_PSUEDO, dataLoaderTrainExpertOnly, dataLoaderVal)
 
         truth_semi.append(metrics_print_2step(model_class, model_expert, Expert.predict, 10, dataLoaderTest))
 
         #make expert predictions on remaining truth only data
-        with torch.no_grad():
-            expert_preds = []
-            for data in dataLoaderTrainTruthOnly:
-                images, label, expert_pred, data_indices ,_ = data
-                expert_pred = expert_pred.long()
-                expert_pred = (expert_pred == label) * 1
-                images, labels, data_indices = images.to(device), expert_pred.to(device), data_indices.to(device)
-                outputs = model_expert(images)
-                _, predictions = torch.max(outputs.data, 1) # maybe no .data
-                expert_preds += predictions.tolist()
-                
+        for rep in range(PSUEDO_REPS):
+            actual_points, within_points = get_most_confident_points(model_expert, dataLoaderTrainTruthOnly, int(psuedo_percent * len(dataset_train_truth_only.targets)))
+            with torch.no_grad():
+                expert_preds = []
+                for data in dataLoaderTrainTruthOnly:
+                    images, label, expert_pred, data_indices ,_ = data
+                    expert_pred = expert_pred.long()
+                    expert_pred = (expert_pred == label) * 1
+                    images, labels, data_indices = images.to(device), expert_pred.to(device), data_indices.to(device)
+                    outputs = model_expert(images)
+                    _, predictions = torch.max(outputs.data, 1) # maybe no .data
+                    expert_preds += predictions.tolist()
+                    
 
-        
-        
-        #fine tune existing expert_model on truth only psuedo expert data
-        dataset_train_truth_only.expert_preds = expert_preds
-        dataLoaderTrainTruthOnly = DataLoader(dataset=dataset_train_truth_only, batch_size=128, shuffle=True, num_workers=0, pin_memory=True)
-        run_expert(model_expert, EPOCHS_ALPHA, dataLoaderTrainTruthOnly, dataLoaderVal)
+            
+            
+            
+            #get most confident points and only use those to create new dataloader
+            dataset_train_truth_only_confident = CifarExpertDataset(all_data_x[actual_points], all_data_y[actual_points], Expert.predict , [0]*len(actual_points), True, list(actual_points))
+            #here we are setting the expert predictions to the target where our expert model predicts the expert will be correct (note in reality the expert might not be correct on these instances)
+            dataset_train_truth_only_confident.expert_preds[np.array(expert_preds)[within_points].astype(bool)] = all_data_y[actual_points][np.array(expert_preds)[within_points].astype(bool)]
+            dataLoaderTrainTruthOnlyConfident = DataLoader(dataset=dataset_train_truth_only_confident, batch_size=128, shuffle=True,  num_workers=0, pin_memory=True)
+            #fine tune existing expert_model on truth only psuedo expert data
+            run_expert(model_expert, EPOCHS_PSUEDO, dataLoaderTrainTruthOnlyConfident, dataLoaderVal)
+            metrics_print_expert(model_expert, dataLoaderTest)
+            metrics_print_2step(model_class, model_expert, Expert.predict, 10, dataLoaderTest)
 
         truth_expert_semi.append(metrics_print_2step(model_class, model_expert, Expert.predict, 10, dataLoaderTest))
 
         #make psuedo truth and psuedo expert predictions on completely unlabeled data
-        with torch.no_grad():
-            targets = []
-            expert_preds = []
-            for data in dataLoaderTrainUnlabeled:
-                images, label, expert_pred, data_indices ,_ = data
-                expert_pred = expert_pred.long()
-                expert_pred = (expert_pred == label) * 1
-                images, labels, data_indices = images.to(device), expert_pred.to(device), data_indices.to(device)
-                outputs_expert = model_expert(images)
-                outputs_class = model_class(images)
-                _, predictions_expert = torch.max(outputs_expert.data, 1) # maybe no .data
-                _, predictions_class = torch.max(outputs_class.data, 1)
-                targets += predictions_class.tolist()
-                expert_preds += predictions_expert.tolist()
-                
+        for rep in range(PSUEDO_REPS):
+            actual_points_truth, within_points_truth = get_most_confident_points(model_class, dataLoaderTrainUnlabeled, int(psuedo_percent * len(dataset_train_unlabeled.targets)))
+            actual_points_expert, within_points_expert = get_most_confident_points(model_expert, dataLoaderTrainUnlabeled, int(psuedo_percent * len(dataset_train_unlabeled.targets)))
+            actual_points = list(set(actual_points_truth).intersection(actual_points_expert))
+            within_points = list(set(within_points_truth).intersection(within_points_expert))
+            with torch.no_grad():
+                targets = []
+                expert_preds = []
+                for data in dataLoaderTrainUnlabeled:
+                    images, label, expert_pred, data_indices ,_ = data
+                    expert_pred = expert_pred.long()
+                    expert_pred = (expert_pred == label) * 1
+                    images, labels, data_indices = images.to(device), expert_pred.to(device), data_indices.to(device)
+                    outputs_expert = model_expert(images)
+                    outputs_class = model_class(images)
+                    _, predictions_expert = torch.max(outputs_expert.data, 1) # maybe no .data
+                    _, predictions_class = torch.max(outputs_class.data, 1)
+                    targets += predictions_class.tolist()
+                    expert_preds += predictions_expert.tolist()
+                    
 
 
 
-        #fine tune expert model using complete pseudo data
-        dataset_train_unlabeled.expert_preds = expert_preds
-        dataset_train_unlabeled.targets = targets
-        dataLoaderTrainUnlabeled = DataLoader(dataset=dataset_train_unlabeled, batch_size=128, shuffle=True,  num_workers=0, pin_memory=True)
-        run_expert(model_expert,EPOCHS, dataLoaderTrainUnlabeled, dataLoaderVal)
+            #fine tune expert model using complete pseudo data
+            
+            
+
+            dataset_train_unlabeled_confident = CifarExpertDataset(all_data_x[actual_points], np.array(targets)[within_points], Expert.predict , [0]*len(actual_points), True, list(actual_points))
+            dataLoaderTrainUnlabeledConfident = DataLoader(dataset=dataset_train_unlabeled_confident, batch_size=128, shuffle=True,  num_workers=0, pin_memory=True)
+            dataset_train_unlabeled_confident.expert_preds[np.array(expert_preds)[within_points].astype(bool)]  = all_data_y[actual_points][np.array(expert_preds)[within_points].astype(bool)] 
+            run_expert(model_expert,EPOCHS, dataLoaderTrainUnlabeledConfident, dataLoaderVal)
 
 
 
         all_data_semi.append(metrics_print_2step(model_class, model_expert, Expert.predict, 10, dataLoaderTest))
+
+        tempFrame = pd.DataFrame({'seperate': seperate, 'joint': joint, 'joint_semi': joint_semisupervised, 'truth_semi': truth_semi, 
+        'truth_expert_semi': truth_expert_semi, 'all_data_semi': all_data_semi})
+        tempFrame.to_pickle('temps/run{}_datasize{}_results_20confidence.pkl'.format(trial, data_size))
 
     
     
@@ -431,11 +476,11 @@ for trial in range(MAX_TRIALS):
     joint_semisupervised_results.append(joint_semisupervised)
 
     frame = pd.DataFrame({'seperate': seperate_results, 'joint': joint_results, 'joint_semi': joint_semisupervised_results, 'truth_semi': truth_semi_results,
-    'truth_expert_semi': truth_expert_semi_results, 'all_data_semi': all_data_semi_results})
+    'truth_expert_semi': truth_expert_semi_results, 'all_data_semi': all_data_semi_results}, index=data_sizes)
 
     #frame = pd.DataFrame({'seperate': seperate_results, 'joint': joint_results, 'joint_semi': joint_semisupervised_results})
 
-    frame.to_pickle('results2.pkl')
+    frame.to_pickle('results_20confidence_run{}.pkl'.format(trial))
     
 
     #each instance how likely to be from labeled vs full. probability of being in full/probability of being in subset 

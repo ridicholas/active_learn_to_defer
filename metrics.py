@@ -306,7 +306,7 @@ def metrics_print_classifier(model, data_loader, defer_net = False):
             accuracy = 100 * float(correct_count) / total_pred[classname]
         print("Accuracy for class {:5s} is: {:.3f} %".format(classname,
                                                     accuracy))
-    return accuracy
+    return 100*correct/total
                                                     
                                                     
 def metrics_print_expert(model, data_loader, defer_net = False):

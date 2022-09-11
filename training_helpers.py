@@ -26,7 +26,12 @@ from metrics import *
 
 import copy
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+if torch.cuda.is_available():
+    device = torch.device("cuda:0")
+else:
+    device = torch.device("cpu")
+
+
 
 def train_reject(train_loader, model, optimizer, scheduler, epoch, expert_fn, n_classes, alpha):
     """

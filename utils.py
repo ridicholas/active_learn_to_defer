@@ -33,7 +33,7 @@ def reject_CrossEntropyLoss(outputs, m, labels, m2, n_classes):
     '''
     batch_size = outputs.size()[0]  # batch_size
     rc = [n_classes] * batch_size
-    outputs = -m * torch.log2(outputs[range(batch_size), rc]) - m2 * torch.log2(
+    outputs = -m * torch.log2(outputs[range(batch_size), rc] + 0.000000000001) - m2 * torch.log2(
         outputs[range(batch_size), labels])  
     return torch.mean(outputs)
 
